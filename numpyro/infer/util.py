@@ -12,7 +12,6 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -50,7 +49,7 @@ def log_density(model, model_args, model_kwargs, params):
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
-        if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity):
+        if site['type'] == 'sample':
             value = site['value']
             intermediates = site['intermediates']
             scale = site['scale']
@@ -268,7 +267,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     replay_model = False
     has_enumerate_support = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed'] and not isinstance(v['fn'], dist.PRNGIdentity):
+        if v['type'] == 'sample' and not v['is_observed']:
             if v['fn'].is_discrete:
                 has_enumerate_support = True
                 if not v['fn'].has_enumerate_support:
@@ -357,6 +356,21 @@ def _guess_max_plate_nesting(model_trace):
     return max_plate_nesting
 
 
+# TODO: follow pyro.util.check_site_shape logics for more complete validation
+def _validate_model(model_trace):
+    # XXX: this validates plate statements under `enum`
+    sites = [site for site in model_trace.values()
+             if site["type"] == "sample"]
+
+    for site in sites:
+        batch_dims = len(site["fn"].batch_shape)
+        if site.get('_control_flow_done', False):
+            batch_dims = batch_dims - 1  # remove time dimension under scan
+        plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
+        assert plate_dims >= batch_dims, \
+            "Missing plate statement for batch dimensions at site {}".format(site["name"])
+
+
 def initialize_model(rng_key, model,
                      init_strategy=init_to_uniform,
                      dynamic_args=False,
@@ -406,6 +420,7 @@ def initialize_model(rng_key, model,
 
         if not isinstance(model, enum):
             max_plate_nesting = _guess_max_plate_nesting(model_trace)
+            _validate_model(model_trace)
             model = enum(config_enumerate(model), -max_plate_nesting - 1)
 
     potential_fn, postprocess_fn = get_potential_fn(model,
@@ -604,13 +619,13 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
 
     prototype_site = batch_shape = None
     for name, sample in posterior_samples.items():
-        if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
+        if batch_shape is not None and jnp.shape(sample)[:batch_ndims] != batch_shape:
             raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
                              f"should be the same, but got "
                              f"{sample.shape[:batch_ndims]} and {batch_shape}")
         else:
             prototype_site = name
-            batch_shape = sample.shape[:batch_ndims]
+            batch_shape = jnp.shape(sample)[:batch_ndims]
 
     if batch_shape is None:  # posterior_samples is an empty dict
         batch_shape = (1,) * batch_ndims

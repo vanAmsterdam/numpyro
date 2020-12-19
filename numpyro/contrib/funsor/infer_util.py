@@ -141,18 +141,18 @@ def log_density(model, model_args, model_kwargs, params):
                 log_prob = scale * log_prob
 
             dim_to_name = site["infer"]["dim_to_name"]
-            log_prob = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=dim_to_name)
+            log_prob_factor = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=dim_to_name)
 
             time_dim = None
             for dim, name in dim_to_name.items():
                 if name.startswith("_time"):
-                    time_dim = funsor.Variable(name, funsor.domains.bint(site["value"].shape[dim]))
-                    time_to_factors[time_dim].append(log_prob)
+                    time_dim = funsor.Variable(name, funsor.domains.bint(log_prob.shape[dim]))
+                    time_to_factors[time_dim].append(log_prob_factor)
                     time_to_init_vars[time_dim] |= frozenset(
                         s for s in dim_to_name.values() if s.startswith("_init"))
                     break
             if time_dim is None:
-                log_factors.append(log_prob)
+                log_factors.append(log_prob_factor)
 
             if not site['is_observed']:
                 sum_vars |= frozenset({site['name']})
@@ -175,4 +175,8 @@ def log_density(model, model_args, model_kwargs, params):
             funsor.ops.logaddexp, funsor.ops.add, log_factors,
             eliminate=sum_vars | prod_vars, plates=prod_vars)
     result = funsor.optimizer.apply_optimizer(lazy_result)
+    if len(result.inputs) > 0:
+        raise ValueError("Expected the joint log density is a scalar, but got {}. "
+                         "There seems to be something wrong at the following sites: {}."
+                         .format(result.data.shape, {k.split("__BOUND")[0] for k in result.inputs}))
     return result.data, model_trace

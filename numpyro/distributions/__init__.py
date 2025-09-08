@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from numpyro.distributions.censored import RightCensoredDistribution
 from numpyro.distributions.conjugate import (
     BetaBinomial,
     DirichletMultinomial,
@@ -109,7 +110,6 @@ from numpyro.distributions.truncated import (
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
 )
-from numpyro.distributions.censored import RightCensoredDistribution
 
 from . import constraints, transforms
 

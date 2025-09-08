@@ -109,6 +109,7 @@ from numpyro.distributions.truncated import (
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
 )
+from numpyro.distributions.censored import RightCensoredDistribution
 
 from . import constraints, transforms
 
@@ -194,6 +195,7 @@ __all__ = [
     "RelaxedBernoulli",
     "RelaxedBernoulliLogits",
     "RightTruncatedDistribution",
+    "RightCensoredDistribution",
     "SineBivariateVonMises",
     "SineSkewed",
     "SoftLaplace",

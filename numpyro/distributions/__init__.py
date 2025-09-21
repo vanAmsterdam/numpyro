@@ -3,7 +3,8 @@
 
 from numpyro.distributions.censored import (
     RightCensoredDistribution,
-    LeftCensoredDistribution
+    LeftCensoredDistribution,
+    IntervalCensoredDistribution
 )
 from numpyro.distributions.conjugate import (
     BetaBinomial,

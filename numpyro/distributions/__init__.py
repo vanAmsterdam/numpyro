@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.distributions.censored import (
-    RightCensoredDistribution,
+    IntervalCensoredDistribution,
     LeftCensoredDistribution,
-    IntervalCensoredDistribution
+    RightCensoredDistribution,
 )
 from numpyro.distributions.conjugate import (
     BetaBinomial,
@@ -201,6 +201,7 @@ __all__ = [
     "RightTruncatedDistribution",
     "LeftCensoredDistribution",
     "RightCensoredDistribution",
+    "IntervalCensoredDistribution",
     "SineBivariateVonMises",
     "SineSkewed",
     "SoftLaplace",

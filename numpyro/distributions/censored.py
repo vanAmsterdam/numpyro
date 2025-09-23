@@ -9,7 +9,7 @@ from jax import lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import DistributionT
+from numpyro._typing import DistributionT, ConstraintT
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
@@ -88,7 +88,17 @@ class LeftCensoredDistribution(Distribution):
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         (self.censored,) = promote_shapes(censored, shape=batch_shape)
+        self._support = base_dist.support
         super().__init__(batch_shape, validate_args=validate_args)
+
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        return self.base_dist.sample(key, sample_shape)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> ConstraintT:
+        return self._support
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
@@ -103,7 +113,6 @@ class LeftCensoredDistribution(Distribution):
             logF(value),  # left-censored observations: log F(t)
             self.base_dist.log_prob(value),  # observed values: log f(t)
         )
-
 
 class RightCensoredDistribution(Distribution):
     r"""
@@ -174,7 +183,17 @@ class RightCensoredDistribution(Distribution):
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
         (self.censored,) = promote_shapes(censored, shape=batch_shape)
+        self._support = base_dist.support
         super().__init__(batch_shape, validate_args=validate_args)
+
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        return self.base_dist.sample(key, sample_shape)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> ConstraintT:
+        return self._support
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
@@ -266,7 +285,13 @@ class IntervalCensoredDistribution(Distribution):
             "The base distribution should be univariate and have positive support."
         )
         self.base_dist = base_dist
-        super().__init__(event_shape=(2,), validate_args=validate_args)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    def sample(
+        self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        return self.base_dist.sample(key, sample_shape)
+
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:

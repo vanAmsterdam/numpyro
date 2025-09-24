@@ -69,7 +69,7 @@ class LeftCensoredDistribution(Distribution):
 
     arg_constraints = {"censored": constraints.boolean}
     reparametrized_params = ["censored"]
-    pytree_data_fields = ("base_dist", "censored")
+    pytree_data_fields = ("base_dist", "censored", "_support")
 
     def __init__(
         self,
@@ -80,9 +80,9 @@ class LeftCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        assert base_dist.support is constraints.positive, (
-            "The base distribution should be univariate and have positive support."
-        )
+        # assert base_dist.support is constraints.positive, (
+        #     "The base distribution should be univariate and have positive support."
+        # )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -164,7 +164,7 @@ class RightCensoredDistribution(Distribution):
 
     arg_constraints = {"censored": constraints.boolean}
     reparametrized_params = ["censored"]
-    pytree_data_fields = ("base_dist", "censored")
+    pytree_data_fields = ("base_dist", "censored", "_support")
 
     def __init__(
         self,
@@ -175,9 +175,9 @@ class RightCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        assert base_dist.support is constraints.positive, (
-            "The base distribution should be univariate and have positive support."
-        )
+        # assert base_dist.support is constraints.positive, (
+        #     "The base distribution should be univariate and have positive support."
+        # )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -269,9 +269,7 @@ class IntervalCensoredDistribution(Distribution):
     # loglik[2] = log (F(6) - F(2))
     """
 
-    arg_constraints = {"censored": constraints.boolean}
-    reparametrized_params = ["censored"]
-    pytree_data_fields = ("base_dist", "censored")
+    pytree_data_fields = ("base_dist", "_support")
 
     def __init__(
         self,
@@ -281,54 +279,66 @@ class IntervalCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        assert base_dist.support is constraints.positive, (
-            "The base distribution should be univariate and have positive support."
-        )
+        # assert base_dist.support is constraints.positive, (
+        #     "The base distribution should be univariate and have positive support."
+        # )
         self.base_dist = base_dist
-        super().__init__(batch_shape, validate_args=validate_args)
+        self._support = base_dist.support
+        super().__init__(event_shape=(2,), validate_args=validate_args)
 
     def sample(
         self, key: jax.dtypes.prng_key, sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
+    @constraints.dependent_property(is_discrete=False, event_dim=1)
+    def support(self) -> ConstraintT:
+        return self._support
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value):
         eps = jnp.finfo(value).eps
 
-        x1 = jnp.take(value, 0, axis=-1)
-        x2 = jnp.take(value, 1, axis=-1)
+        x1 = jnp.take(value, 0, axis=-1)  # left bound
+        x2 = jnp.take(value, 1, axis=-1)  # right bound
 
-        # Masks
-        m_left = jnp.isnan(x1) & jnp.isfinite(x2)  # (-inf, x2]
-        m_right = jnp.isfinite(x1) & jnp.isnan(x2)  # (x1,  inf)
-        m_int = jnp.isfinite(x1) & jnp.isfinite(x2)  # (x1,  x2]
+        m_left  = jnp.isneginf(x1) & jnp.isfinite(x2)     # (-inf, x2]
+        m_right = jnp.isfinite(x1) & jnp.isposinf(x2)     # (x1,  inf)
+        m_int   = jnp.isfinite(x1) & jnp.isfinite(x2)     # (x1,  x2]
 
-        # Replace NaNs with safe numbers BEFORE passing to cdf
-        # Choose a safe point inside the support, which is positive
-        lb = 0.0  # for positive support
-        x1_safe = jnp.where(m_right | m_int, jnp.maximum(x1, lb + eps), lb + eps)
-        x2_safe = jnp.where(m_left | m_int, jnp.maximum(x2, lb + eps), lb + eps)
+        # Replace non-finite bounds with a finite placeholder BEFORE cdf
+        # (value doesn't matter; it will be overwritten)
+        x1_finite = jnp.where(jnp.isfinite(x1), x1, 0.0)
+        x2_finite = jnp.where(jnp.isfinite(x2), x2, 0.0)
 
-        # CDFs on safe inputs
-        F1 = jnp.clip(self.base_dist.cdf(x1_safe), eps, 1.0 - eps)
-        F2 = jnp.clip(self.base_dist.cdf(x2_safe), eps, 1.0 - eps)
+        F1_tmp = self.base_dist.cdf(x1_finite)
+        F2_tmp = self.base_dist.cdf(x2_finite)
 
-        # Likelihood pieces (no NaNs)
-        # right-censored: log S(x1) = log(1 - F1)
+        # Overwrite with correct limit values on censored rows
+        # Left-censored: F1 := 0
+        F1 = jnp.where(m_left,  0.0, F1_tmp)
+        # Right-censored: F2 := 1
+        F2 = jnp.where(m_right, 1.0, F2_tmp)
+
+        # For interval rows, keep the tmp values
+        # Stabilize against log(0) and tiny intervals
+        F1 = jnp.clip(F1, eps, 1.0 - eps)
+        F2 = jnp.clip(F2, eps, 1.0 - eps)
+
+        # Use a stable log-diff for intervals (also covers left/right cases)
+        # log(F2 - F1) = logF2 + log1p(-exp(logF1 - logF2))
+        logF1 = jnp.log(F1)
+        logF2 = jnp.log(F2)
+        lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, a_max=-eps)))
+
+        # Select the right expression per row
+        # left: log F(x2)
+        lp_left  = logF2
+        # right: log (1 - F(x1)) = log1p(-F1)
         lp_right = jnp.log1p(-F1)
 
-        # left-censored: log F(x2)
-        lp_left = jnp.log(F2)
-
-        # interval: log(F2 - F1)
-        diff = jnp.clip(F2 - F1, eps, 1.0)  # ensure strictly positive
-        lp_int = jnp.log(diff)
-
-        # Combine with masks; default 0 so we don't carry NaNs around
-        logp = jnp.where(m_right, lp_right, 0.0)
-        logp = logp + jnp.where(m_left, lp_left, 0.0)
-        logp = logp + jnp.where(m_int, lp_int, 0.0)
-
+        logp = jnp.zeros_like(logF1)
+        logp = jnp.where(m_left,  lp_left,  logp)
+        logp = jnp.where(m_right, lp_right, logp)
+        logp = jnp.where(m_int,   lp_interval, logp)
         return logp

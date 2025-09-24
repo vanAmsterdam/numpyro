@@ -154,18 +154,34 @@ def _TruncatedNormal(loc, scale, low, high):
 def _TruncatedCauchy(loc, scale, low, high):
     return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
 
+def _LeftCensoredHalfNormal(scale, censored):
+    base_dist = dist.HalfNormal(scale)
+    return LeftCensoredDistribution(base_dist, censored)
+
 def _RightCensoredWeibull(scale, concentration, censored):
     base_dist = dist.Weibull(scale, concentration)
     return RightCensoredDistribution(base_dist, censored)
 
-def _LeftCensoredHalfNormal(scale, censored):
-    base_dist = dist.HalfNormal(scale)
+def _LeftCensoredNormal(loc, scale, censored):
+    base_dist = dist.Normal(loc, scale)
     return LeftCensoredDistribution(base_dist, censored)
+
+def _RightCensoredNormal(loc, scale, censored):
+    base_dist = dist.Normal(loc, scale)
+    return RightCensoredDistribution(base_dist, censored)
+
+def _IntervalCensoredNormal(loc, scale):
+    base_dist = dist.Normal(loc, scale)
+    return IntervalCensoredDistribution(base_dist)
 
 
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+# _IntervalCensoredNormal.arg_constraints = {}
+# _IntervalCensoredNormal.reparametrized_params = []
+# _IntervalCensoredNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class SineSkewedUniform(dist.SineSkewed):
@@ -984,6 +1000,11 @@ CONTINUOUS = [
     T(_RightCensoredWeibull, 1.0, 1.0, 1.0),
     T(_LeftCensoredHalfNormal, 1.0, 0.0),
     T(_LeftCensoredHalfNormal, 1.0, 1.0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 0.0),
+    T(_LeftCensoredNormal, 0.0, 1.0, 1.0),
+    T(_RightCensoredNormal, 0.0, 1.0, 0.0),
+    T(_RightCensoredNormal, 0.0, 1.0, 1.0),
+    T(_IntervalCensoredNormal, 0.0, 1.0),
 ]
 
 DIRECTIONAL = [
@@ -1970,6 +1991,9 @@ def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist in (
         _LeftCensoredHalfNormal,
         _RightCensoredWeibull,
+        _LeftCensoredNormal,
+        _RightCensoredNormal,
+        _IntervalCensoredNormal,
         dist.LeftCensoredDistribution,
         dist.RightCensoredDistribution,
         dist.IntervalCensoredDistribution,
@@ -2139,6 +2163,9 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         _TruncatedCauchy,
         _LeftCensoredHalfNormal,
         _RightCensoredWeibull,
+        _LeftCensoredNormal,
+        _RightCensoredNormal,
+        _IntervalCensoredNormal,
         _GaussianMixture,
         _Gaussian2DMixture,
         _GeneralMixture,
@@ -3284,6 +3311,12 @@ def _get_vmappable_dist_init_params(jax_dist):
         return [1]
     elif jax_dist.__name__ == ("_RightCensoredWeibull"):
         return [2]
+    elif jax_dist.__name__ == ("_LeftCensoredNormal"):
+        return [2]
+    elif jax_dist.__name__ == ("_RightCensoredNormal"):
+        return [2]
+    elif jax_dist.__name__ == ("_IntervalCensoredNormal"):
+        return []
     elif issubclass(jax_dist, dist.Distribution):
         init_parameters = list(inspect.signature(jax_dist.__init__).parameters.keys())[
             1:

@@ -170,9 +170,9 @@ def _RightCensoredNormal(loc, scale, censored):
     base_dist = dist.Normal(loc, scale)
     return RightCensoredDistribution(base_dist, censored)
 
-def _IntervalCensoredNormal(loc, scale):
+def _IntervalCensoredNormal(loc, scale, left_censored, right_censored):
     base_dist = dist.Normal(loc, scale)
-    return IntervalCensoredDistribution(base_dist)
+    return IntervalCensoredDistribution(base_dist, left_censored, right_censored)
 
 
 _TruncatedNormal.arg_constraints = {}
@@ -1004,7 +1004,10 @@ CONTINUOUS = [
     T(_LeftCensoredNormal, 0.0, 1.0, 1.0),
     T(_RightCensoredNormal, 0.0, 1.0, 0.0),
     T(_RightCensoredNormal, 0.0, 1.0, 1.0),
-    T(_IntervalCensoredNormal, 0.0, 1.0),
+    T(_IntervalCensoredNormal, 0.0, 1.0, 0.0, 0.0),
+    T(_IntervalCensoredNormal, 0.0, 1.0, 0.0, 1.0),
+    T(_IntervalCensoredNormal, 0.0, 1.0, 1.0, 0.0),
+    T(_IntervalCensoredNormal, 0.0, 1.0, 1.0, 1.0),
 ]
 
 DIRECTIONAL = [

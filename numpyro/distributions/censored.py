@@ -74,7 +74,7 @@ class LeftCensoredDistribution(Distribution):
     def __init__(
         self,
         base_dist: DistributionT,
-        censored: ArrayLike = True,
+        censored: ArrayLike = False,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -169,7 +169,7 @@ class RightCensoredDistribution(Distribution):
     def __init__(
         self,
         base_dist: DistributionT,
-        censored: ArrayLike = True,
+        censored: ArrayLike = False,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -274,6 +274,8 @@ class IntervalCensoredDistribution(Distribution):
     def __init__(
         self,
         base_dist: DistributionT,
+        left_censored: ArrayLike,
+        right_censored: ArrayLike,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -283,6 +285,12 @@ class IntervalCensoredDistribution(Distribution):
         #     "The base distribution should be univariate and have positive support."
         # )
         self.base_dist = base_dist
+        batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(left_censored), jnp.shape(right_censored))
+        self.base_dist: DistributionT = jax.tree.map(
+            lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
+        )
+        (self.left_censored,) = promote_shapes(left_censored, shape=batch_shape)
+        (self.right_censored,) = promote_shapes(right_censored, shape=batch_shape)
         self._support = base_dist.support
         super().__init__(event_shape=(2,), validate_args=validate_args)
 
@@ -302,9 +310,14 @@ class IntervalCensoredDistribution(Distribution):
         x1 = jnp.take(value, 0, axis=-1)  # left bound
         x2 = jnp.take(value, 1, axis=-1)  # right bound
 
-        m_left  = jnp.isneginf(x1) & jnp.isfinite(x2)     # (-inf, x2]
-        m_right = jnp.isfinite(x1) & jnp.isposinf(x2)     # (x1,  inf)
-        m_int   = jnp.isfinite(x1) & jnp.isfinite(x2)     # (x1,  x2]
+        m_left = self.left_censored & (~self.right_censored)
+        m_right = self.right_censored & (~self.left_censored)
+        m_int = (~self.left_censored) & (~self.right_censored)
+        m_double = self.left_censored & self.right_censored
+
+        # m_left  = jnp.isneginf(x1) & jnp.isfinite(x2)     # (-inf, x2]
+        # m_right = jnp.isfinite(x1) & jnp.isposinf(x2)     # (x1,  inf)
+        # m_int   = jnp.isfinite(x1) & jnp.isfinite(x2)     # (x1,  x2]
 
         # Replace non-finite bounds with a finite placeholder BEFORE cdf
         # (value doesn't matter; it will be overwritten)
@@ -331,6 +344,9 @@ class IntervalCensoredDistribution(Distribution):
         logF2 = jnp.log(F2)
         lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, a_max=-eps)))
 
+        # for doubly censored data, the value is not in the interval, so computation is 1 - lp_interval
+        lp_double = jnp.log1p(-jnp.exp(lp_interval))
+
         # Select the right expression per row
         # left: log F(x2)
         lp_left  = logF2
@@ -341,4 +357,5 @@ class IntervalCensoredDistribution(Distribution):
         logp = jnp.where(m_left,  lp_left,  logp)
         logp = jnp.where(m_right, lp_right, logp)
         logp = jnp.where(m_int,   lp_interval, logp)
+        logp = jnp.where(m_double, lp_double, logp)  
         return logp

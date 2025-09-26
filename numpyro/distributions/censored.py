@@ -20,32 +20,36 @@ from numpyro.distributions.util import (
 
 class LeftCensoredDistribution(Distribution):
     r"""
-    Distribution wrapper for left-censored survival outcomes.
+    Distribution wrapper for left-censored outcomes.
 
-    This distribution augments an event-time distribution with left-censoring,
+    This distribution augments a base distribution with left-censoring,
     so that the likelihood contribution depends on the censoring indicator.
 
     Parameters
     ----------
     base_dist : numpyro.distributions.Distribution
-        Parametric distribution for the *uncensored* event times
-        (e.g., Exponential, Weibull, LogNormal, etc.).
+        Parametric distribution for the *uncensored* values
+        (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
         This distribution must implement a `cdf` method.
     censored : array-like of {0,1}
         Censoring indicator per observation:
-        - 0 → event time is observed exactly
-        - 1 → observation is left-censored at the reported time
-        (true event time occurred *on or before* the reported time)
+        - 0 → value is observed exactly
+        - 1 → observation is left-censored at the reported value
+        (true value occurred *on or before* the reported value)
 
     Notes
     -----
-    - The `log_prob(value)` method expects `value` to be the observed follow-up
-    time (upper bound) for each subject. The contribution to the log-likelihood is:
+    - The `log_prob(value)` method expects `value` to be the observed upper bound
+      for each observation. The contribution to the log-likelihood is:
 
-        log f(time)    if censored == 0
-        log F(time)    if censored == 1
+        log f(value)    if censored == 0
+        log F(value)    if censored == 1
 
     where f is the density and F the cumulative distribution function of `base_dist`.
+
+    - This is commonly used in survival analysis, where event times are positive,
+      but the approach is more general and can be applied to any distribution
+      with a cumulative distribution function, regardless of support.
 
     - In R's **survival** package notation, this corresponds to
     `Surv(time, event, type = "left")`.
@@ -80,9 +84,6 @@ class LeftCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        # assert base_dist.support is constraints.positive, (
-        #     "The base distribution should be univariate and have positive support."
-        # )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -116,31 +117,36 @@ class LeftCensoredDistribution(Distribution):
 
 class RightCensoredDistribution(Distribution):
     r"""
-    Distribution wrapper for right-censored survival outcomes.
+    Distribution wrapper for right-censored outcomes.
 
-    This distribution augments an event-time distribution with right-censoring,
+    This distribution augments a base distribution with right-censoring,
     so that the likelihood contribution depends on the censoring indicator.
 
     Parameters
     ----------
     base_dist : numpyro.distributions.Distribution
-        Parametric distribution for the *uncensored* event times
-        (e.g., Exponential, Weibull, LogNormal, etc.).
+        Parametric distribution for the *uncensored* values
+        (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
         This distribution must implement a `cdf` method.
     censored : array-like of {0,1}
         Censoring indicator per observation:
-        - 0 → event occurred at the observed time
-        - 1 → observation is right-censored at the observed time
+        - 0 → value is observed exactly
+        - 1 → observation is right-censored at the reported value
+        (true value occurred *on or after* the reported value)
 
     Notes
     -----
-    - The `log_prob(value)` method expects `value` to be the observed follow-up
-      time for each subject. The contribution to the log-likelihood is:
+    - The `log_prob(value)` method expects `value` to be the observed lower bound
+      for each observation. The contribution to the log-likelihood is:
 
-          log f(time)    if censored == 0
-          log S(time)    if censored == 1
+        log f(value)    if censored == 0
+        log (1 - F(value))    if censored == 1
 
-      where f is the density and S (i.e. 1 - F(x) = `1 - base_dist.cdf(x)`) the survival function of `base_dist`.
+    where f is the density and F the cumulative distribution function of `base_dist`.
+
+    - This is commonly used in survival analysis, where event times are positive,
+      but the approach is more general and can be applied to any distribution
+      with a cumulative distribution function, regardless of support.
 
     - In R's **survival** package notation, this corresponds to
       `Surv(time, event)` with `type = "right"`.
@@ -175,9 +181,6 @@ class RightCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        # assert base_dist.support is constraints.positive, (
-        #     "The base distribution should be univariate and have positive support."
-        # )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
@@ -210,38 +213,54 @@ class RightCensoredDistribution(Distribution):
 
 class IntervalCensoredDistribution(Distribution):
     r"""
-    Distribution wrapper for interval-censored survival outcomes.
+    Distribution wrapper for interval-censored outcomes.
 
-    This distribution augments an event-time distribution with interval censoring,
+    This distribution augments a base distribution with interval censoring,
     so that the likelihood contribution depends on whether the observation is
-    left-censored, right-censored, interval-censored or doubly-censored (meaning value is known not to be in the interval, which doesn't typically occur in survival analysis).
+    left-censored, right-censored, interval-censored, or doubly-censored
+    (meaning value is known not to be in the interval, which is rare in practice).
 
     Parameters
     ----------
     base_dist : numpyro.distributions.Distribution
-        Parametric distribution for the *uncensored* event times
-        (e.g., Exponential, Weibull, LogNormal, etc.).
+        Parametric distribution for the *uncensored* values
+        (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
         This distribution must implement a `cdf` method.
+    left_censored : array-like of {0,1}
+        Indicator per observation:
+        - 1 → observation is left-censored at the reported upper bound
+        - 0 → not left-censored
+    right_censored : array-like of {0,1}
+        Indicator per observation:
+        - 1 → observation is right-censored at the reported lower bound
+        - 0 → not right-censored
 
     Notes
     -----
     - The `log_prob(value)` method expects `value` to be a two-dimensional array
-    of shape `(batch_size, 2)`, where each row is `(x1, x2)`:
+      of shape `(batch_size, 2)`, where each row is `(lower, upper)`:
 
-        * If `x1` is NaN and `x2` is finite:
-                Interval = (-inf, x2] → left-censored at `x2`
-                Contribution = log F(x2)
+        * If `left_censored[i] == 1`:
+            Interval = (-inf, upper] → left-censored at `upper`
+            Contribution = log F(upper)
 
-        * If `x1` is finite and `x2` is NaN:
-                Interval = (x1, inf) → right-censored at `x1`
-                Contribution = log S(x1) = log(1 - F(x1))
+        * If `right_censored[i] == 1`:
+            Interval = (lower, inf) → right-censored at `lower`
+            Contribution = log(1 - F(lower))
 
-        * If both `x1` and `x2` are finite:
-                Interval = (x1, x2] → event occurred within the interval
-                Contribution = log(F(x2) - F(x1))
+        * If both `left_censored[i] == 0` and `right_censored[i] == 0`:
+            Interval = (lower, upper] → event occurred within the interval
+            Contribution = log(F(upper) - F(lower))
 
-    where F is the cumulative distribution function of `base_dist` and
-    S is its survival function.
+        * If both `left_censored[i] == 1` and `right_censored[i] == 1`:
+            Interval = (-inf, lower] | [upper, inf) → event occurred outside of the interval
+            Contribution = log(1 - (F(upper) - F(lower)))
+
+    where f is the density and F the cumulative distribution function of `base_dist`.
+
+    - This approach is commonly used in survival analysis, where event times are positive,
+      but it is more general and can be applied to any distribution with a cumulative
+      distribution function, regardless of support.
 
     - This matches the semantics of R’s **survival** package with
     `Surv(l, r, type = "interval2")`.
@@ -250,23 +269,25 @@ class IntervalCensoredDistribution(Distribution):
         `Surv(l = c(2, 4, 6), r = c(5, Inf, 9), type="interval2")`
         means:
         * subject 1: event occurred in (2, 5]
-        * subject 2: event right-censored at 4
+        * subject 2: event interval (2,5]
         * subject 3: event occurred in (6, 9]
 
     Examples
     --------
     >>> base = dist.Weibull(concentration=2.0, scale=3.0)
-    >>> surv_dist = IntervalCensoredDistribution(base)
-    >>> # Three observations: left-, right-, and interval-censored
+    >>> left_censored = jnp.array([0, 0, 0])
+    >>> right_censored = jnp.array([0, 1, 0])
+    >>> surv_dist = IntervalCensoredDistribution(base, left_censored=left_censored, right_censored=right_censored)
+    >>> # Three observations: interval-censored, right-censored, interval-censored
     >>> values = jnp.array([
-    ...     [jnp.nan, 4.0],   # left-censored at 4
-    ...     [5.0,     jnp.nan], # right-censored at 5
-    ...     [2.0,     6.0],   # interval (2,6]
+    ...     [2.0, 5.0],   # left-censored at 4
+    ...     [4.0, jnp.inf], # right-censored at 4
+    ...     [6.0, 9.0],   # interval (6,9]
     ... ])
     >>> loglik = surv_dist.log_prob(values)
-    # loglik[0] = log F(4)
-    # loglik[1] = log (1 - F(5))
-    # loglik[2] = log (F(6) - F(2))
+    # loglik[0] = log (F(5) - F(2))
+    # loglik[1] = log (1 - F(4))
+    # loglik[2] = log (F(9) - F(6))
     """
 
     pytree_data_fields = ("base_dist", "left_censored", "right_censored", "_support")
@@ -281,9 +302,6 @@ class IntervalCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        # assert base_dist.support is constraints.positive, (
-        #     "The base distribution should be univariate and have positive support."
-        # )
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(left_censored), jnp.shape(right_censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist

@@ -1309,6 +1309,9 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     if jax_dist_cls is not dist.Delta:
         assert isinstance(samples, jnp.ndarray)
+    if isinstance(jax_dist, dist.IntervalCensoredDistribution):
+        # interval censored distributions take interval (lo-hi) input but return univarite samples
+        expected_shape = expected_shape[:-1]
     assert jnp.shape(samples) == expected_shape
     if (
         sp_dist
@@ -1564,6 +1567,9 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
 
     rng_key = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
+    if isinstance(jax_dist, dist.IntervalCensoredDistribution):
+        # IntervalCensoredDistribution takes interval (lo-hi) input but returns univarite samples
+        samples = jnp.stack([samples, samples + 0.1], axis=-1)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     truncated_dists = (
         dist.LeftTruncatedDistribution,
@@ -1920,6 +1926,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     rng_key = random.PRNGKey(0)
     value = jax_dist(*params).sample(rng_key)
+    if isinstance(jax_dist(*params), dist.IntervalCensoredDistribution):
+        # IntervalCensoredDistribution takes interval (lo-hi) input but returns univarite samples
+        value = jnp.stack([value, value + 0.1], axis=-1)
 
     def fn(*args):
         return jnp.sum(jax_dist(*args).log_prob(value))
@@ -2909,6 +2918,9 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     rng_key = random.PRNGKey(0)
     samples = expanded_dist.sample(rng_key, sample_shape)
     assert expanded_dist.batch_shape == new_batch_shape
+    if isinstance(jax_dist, dist.IntervalCensoredDistribution):
+        # interval censored distributions take interval (lo-hi) input but return univarite samples
+        samples = jnp.stack([samples, samples + 0.1], axis=-1)
     assert jnp.shape(samples) == sample_shape + new_batch_shape + jax_dist.event_shape
     assert expanded_dist.log_prob(samples).shape == sample_shape + new_batch_shape
     # test expand of expand
@@ -3070,6 +3082,10 @@ def test_dist_pytree(jax_dist, sp_dist, params):
             )
     expected_sample = expected_dist.sample(random.PRNGKey(0))
     actual_sample = actual_dist.sample(random.PRNGKey(0))
+    if isinstance(expected_dist, dist.IntervalCensoredDistribution):
+        # interval censored distributions take interval (lo-hi) input but return univarite samples
+        expected_sample = jnp.stack([expected_sample, expected_sample + 0.1], axis=-1)
+        actual_sample = jnp.stack([actual_sample, actual_sample + 0.1], axis=-1)
     expected_log_prob = expected_dist.log_prob(expected_sample)
     actual_log_prob = actual_dist.log_prob(actual_sample)
     assert_allclose(actual_sample, expected_sample, rtol=1e-6)

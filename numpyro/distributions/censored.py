@@ -30,7 +30,7 @@ class LeftCensoredDistribution(Distribution):
     base_dist : numpyro.distributions.Distribution
         Parametric distribution for the *uncensored* event times
         (e.g., Exponential, Weibull, LogNormal, etc.).
-        This distribution must have non-negative support and implement a `cdf` method.
+        This distribution must implement a `cdf` method.
     censored : array-like of {0,1}
         Censoring indicator per observation:
         - 0 → event time is observed exactly
@@ -87,7 +87,7 @@ class LeftCensoredDistribution(Distribution):
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
-        (self.censored,) = promote_shapes(censored, shape=batch_shape)
+        self.censored = jnp.array(promote_shapes(censored, shape=batch_shape)[0], dtype=jnp.bool)
         self._support = base_dist.support
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -126,7 +126,7 @@ class RightCensoredDistribution(Distribution):
     base_dist : numpyro.distributions.Distribution
         Parametric distribution for the *uncensored* event times
         (e.g., Exponential, Weibull, LogNormal, etc.).
-        This distribution must have non-negative support and implement a `cdf` method.
+        This distribution must implement a `cdf` method.
     censored : array-like of {0,1}
         Censoring indicator per observation:
         - 0 → event occurred at the observed time
@@ -182,7 +182,7 @@ class RightCensoredDistribution(Distribution):
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
-        (self.censored,) = promote_shapes(censored, shape=batch_shape)
+        self.censored = jnp.array(promote_shapes(censored, shape=batch_shape)[0], dtype=jnp.bool)
         self._support = base_dist.support
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -214,14 +214,14 @@ class IntervalCensoredDistribution(Distribution):
 
     This distribution augments an event-time distribution with interval censoring,
     so that the likelihood contribution depends on whether the observation is
-    left-censored, right-censored, or truly interval-censored.
+    left-censored, right-censored, interval-censored or doubly-censored (meaning value is known not to be in the interval, which doesn't typically occur in survival analysis).
 
     Parameters
     ----------
     base_dist : numpyro.distributions.Distribution
         Parametric distribution for the *uncensored* event times
         (e.g., Exponential, Weibull, LogNormal, etc.).
-        This distribution must have non-negative support and implement a `cdf` method.
+        This distribution must implement a `cdf` method.
 
     Notes
     -----
@@ -269,7 +269,7 @@ class IntervalCensoredDistribution(Distribution):
     # loglik[2] = log (F(6) - F(2))
     """
 
-    pytree_data_fields = ("base_dist", "_support")
+    pytree_data_fields = ("base_dist", "left_censored", "right_censored", "_support")
 
     def __init__(
         self,
@@ -284,13 +284,12 @@ class IntervalCensoredDistribution(Distribution):
         # assert base_dist.support is constraints.positive, (
         #     "The base distribution should be univariate and have positive support."
         # )
-        self.base_dist = base_dist
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(left_censored), jnp.shape(right_censored))
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
-        (self.left_censored,) = promote_shapes(left_censored, shape=batch_shape)
-        (self.right_censored,) = promote_shapes(right_censored, shape=batch_shape)
+        self.left_censored = jnp.array(promote_shapes(left_censored, shape=batch_shape)[0], dtype=jnp.bool)
+        self.right_censored = jnp.array(promote_shapes(right_censored, shape=batch_shape)[0], dtype=jnp.bool)
         self._support = base_dist.support
         super().__init__(event_shape=(2,), validate_args=validate_args)
 
@@ -342,7 +341,7 @@ class IntervalCensoredDistribution(Distribution):
         # log(F2 - F1) = logF2 + log1p(-exp(logF1 - logF2))
         logF1 = jnp.log(F1)
         logF2 = jnp.log(F2)
-        lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, a_max=-eps)))
+        lp_interval = logF2 + jnp.log1p(-jnp.exp(jnp.clip(logF1 - logF2, max=-eps)))
 
         # for doubly censored data, the value is not in the interval, so computation is 1 - lp_interval
         lp_double = jnp.log1p(-jnp.exp(lp_interval))

@@ -32,6 +32,11 @@ from numpyro.distributions import (
     transforms,
 )
 from numpyro.distributions.batch_util import vmap_over
+from numpyro.distributions.censored import (
+    IntervalCensoredDistribution,
+    LeftCensoredDistribution,
+    RightCensoredDistribution,
+)
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.transforms import (
@@ -50,11 +55,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix,
 )
 from numpyro.nn import AutoregressiveNN
-from numpyro.distributions.censored import (
-    RightCensoredDistribution,
-    LeftCensoredDistribution,
-    IntervalCensoredDistribution,
-)
 
 
 def my_kron(A, B):
@@ -154,21 +154,26 @@ def _TruncatedNormal(loc, scale, low, high):
 def _TruncatedCauchy(loc, scale, low, high):
     return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
 
+
 def _LeftCensoredHalfNormal(scale, censored):
     base_dist = dist.HalfNormal(scale)
     return LeftCensoredDistribution(base_dist, censored)
+
 
 def _RightCensoredWeibull(scale, concentration, censored):
     base_dist = dist.Weibull(scale, concentration)
     return RightCensoredDistribution(base_dist, censored)
 
+
 def _LeftCensoredNormal(loc, scale, censored):
     base_dist = dist.Normal(loc, scale)
     return LeftCensoredDistribution(base_dist, censored)
 
+
 def _RightCensoredNormal(loc, scale, censored):
     base_dist = dist.Normal(loc, scale)
     return RightCensoredDistribution(base_dist, censored)
+
 
 def _IntervalCensoredNormal(loc, scale, left_censored, right_censored):
     base_dist = dist.Normal(loc, scale)

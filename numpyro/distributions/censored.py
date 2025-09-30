@@ -9,7 +9,7 @@ from jax import lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
-from numpyro._typing import DistributionT, ConstraintT
+from numpyro._typing import ConstraintT, DistributionT
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
@@ -88,7 +88,9 @@ class LeftCensoredDistribution(Distribution):
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
-        self.censored = jnp.array(promote_shapes(censored, shape=batch_shape)[0], dtype=jnp.bool)
+        self.censored = jnp.array(
+            promote_shapes(censored, shape=batch_shape)[0], dtype=jnp.bool
+        )
         self._support = base_dist.support
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -114,6 +116,7 @@ class LeftCensoredDistribution(Distribution):
             logF(value),  # left-censored observations: log F(t)
             self.base_dist.log_prob(value),  # observed values: log f(t)
         )
+
 
 class RightCensoredDistribution(Distribution):
     r"""
@@ -185,7 +188,9 @@ class RightCensoredDistribution(Distribution):
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
-        self.censored = jnp.array(promote_shapes(censored, shape=batch_shape)[0], dtype=jnp.bool)
+        self.censored = jnp.array(
+            promote_shapes(censored, shape=batch_shape)[0], dtype=jnp.bool
+        )
         self._support = base_dist.support
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -302,12 +307,18 @@ class IntervalCensoredDistribution(Distribution):
     ):
         # test if base_dist has an implemented cdf method
         assert hasattr(base_dist, "cdf")
-        batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(left_censored), jnp.shape(right_censored))
+        batch_shape = lax.broadcast_shapes(
+            base_dist.batch_shape, jnp.shape(left_censored), jnp.shape(right_censored)
+        )
         self.base_dist: DistributionT = jax.tree.map(
             lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist
         )
-        self.left_censored = jnp.array(promote_shapes(left_censored, shape=batch_shape)[0], dtype=jnp.bool)
-        self.right_censored = jnp.array(promote_shapes(right_censored, shape=batch_shape)[0], dtype=jnp.bool)
+        self.left_censored = jnp.array(
+            promote_shapes(left_censored, shape=batch_shape)[0], dtype=jnp.bool
+        )
+        self.right_censored = jnp.array(
+            promote_shapes(right_censored, shape=batch_shape)[0], dtype=jnp.bool
+        )
         self._support = base_dist.support
         super().__init__(event_shape=(2,), validate_args=validate_args)
 
@@ -332,11 +343,7 @@ class IntervalCensoredDistribution(Distribution):
         m_int = (~self.left_censored) & (~self.right_censored)
         m_double = self.left_censored & self.right_censored
 
-        # m_left  = jnp.isneginf(x1) & jnp.isfinite(x2)     # (-inf, x2]
-        # m_right = jnp.isfinite(x1) & jnp.isposinf(x2)     # (x1,  inf)
-        # m_int   = jnp.isfinite(x1) & jnp.isfinite(x2)     # (x1,  x2]
-
-        # Replace non-finite bounds with a finite placeholder BEFORE cdf
+        # Replace potential non-finite bounds with a finite placeholder BEFORE cdf
         # (value doesn't matter; it will be overwritten)
         x1_finite = jnp.where(jnp.isfinite(x1), x1, 0.0)
         x2_finite = jnp.where(jnp.isfinite(x2), x2, 0.0)
@@ -346,7 +353,7 @@ class IntervalCensoredDistribution(Distribution):
 
         # Overwrite with correct limit values on censored rows
         # Left-censored: F1 := 0
-        F1 = jnp.where(m_left,  0.0, F1_tmp)
+        F1 = jnp.where(m_left, 0.0, F1_tmp)
         # Right-censored: F2 := 1
         F2 = jnp.where(m_right, 1.0, F2_tmp)
 
@@ -366,13 +373,13 @@ class IntervalCensoredDistribution(Distribution):
 
         # Select the right expression per row
         # left: log F(x2)
-        lp_left  = logF2
+        lp_left = logF2
         # right: log (1 - F(x1)) = log1p(-F1)
         lp_right = jnp.log1p(-F1)
 
         logp = jnp.zeros_like(logF1)
-        logp = jnp.where(m_left,  lp_left,  logp)
+        logp = jnp.where(m_left, lp_left, logp)
         logp = jnp.where(m_right, lp_right, logp)
-        logp = jnp.where(m_int,   lp_interval, logp)
-        logp = jnp.where(m_double, lp_double, logp)  
+        logp = jnp.where(m_int, lp_interval, logp)
+        logp = jnp.where(m_double, lp_double, logp)
         return logp

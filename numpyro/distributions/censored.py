@@ -343,10 +343,11 @@ class IntervalCensoredDistribution(Distribution):
         m_int = (~self.left_censored) & (~self.right_censored)
         m_double = self.left_censored & self.right_censored
 
-        # Replace potential non-finite bounds with a finite placeholder BEFORE cdf
+        # Replace potential out-of-support values with finite placeholder BEFORE cdf
         # (value doesn't matter; it will be overwritten)
-        x1_finite = jnp.where(jnp.isfinite(x1), x1, 0.0)
-        x2_finite = jnp.where(jnp.isfinite(x2), x2, 0.0)
+        feasible_value = self._support.feasible_like(x1)
+        x1_finite = jnp.where(m_left, feasible_value, x1)
+        x2_finite = jnp.where(m_right, feasible_value, x2)
 
         F1_tmp = self.base_dist.cdf(x1_finite)
         F2_tmp = self.base_dist.cdf(x2_finite)

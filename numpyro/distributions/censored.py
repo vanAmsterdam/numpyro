@@ -105,7 +105,8 @@ class LeftCensoredDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
-        minval = jnp.finfo(value).tiny
+        minval = 1e-10
+        # minval = jnp.finfo(value).tiny
 
         def logF(x):
             # log(F(x)) with stability
@@ -333,7 +334,8 @@ class IntervalCensoredDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        eps = jnp.finfo(value).eps
+        # eps = jnp.finfo(value).eps
+        eps = 1e-10
 
         x1 = jnp.take(value, 0, axis=-1)  # left bound
         x2 = jnp.take(value, 1, axis=-1)  # right bound

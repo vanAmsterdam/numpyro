@@ -33,9 +33,9 @@ class LeftCensoredDistribution(Distribution):
         This distribution must implement a `cdf` method.
     censored : array-like of {0,1}
         Censoring indicator per observation:
+
         - 0 → value is observed exactly
-        - 1 → observation is left-censored at the reported value
-        (true value occurred *on or before* the reported value)
+        - 1 → observation is left-censored at the reported value (true value occurred *on or before* the reported value)
 
     Notes
     -----
@@ -169,12 +169,13 @@ class RightCensoredDistribution(Distribution):
     - In R's **survival** package notation, this corresponds to
       `Surv(time, event)` with `type = "right"`.
 
-        Example:
-        `Surv(time = c(5, 8, 10), event = c(1, 0, 1))`
-        means:
-          * subject 1 had an event at t=5
-          * subject 2 was censored at t=8
-          * subject 3 had an event at t=10
+      Example:
+      `Surv(time = c(5, 8, 10), event = c(1, 0, 1))`
+      means:
+
+      * subject 1 had an event at t=5
+      * subject 2 was censored at t=8
+      * subject 3 had an event at t=10
 
     Examples
     --------
